@@ -4,6 +4,11 @@ import numpy as np
 from matplotlib.ticker import MaxNLocator
 import time
 import os
+import subprocess
+import re
+import logging
+
+logging.basicConfig(filename='amazing_trace.log', encoding="utf-8", level=logging.DEBUG)
 
 def execute_traceroute(destination):
     """
@@ -15,59 +20,88 @@ def execute_traceroute(destination):
     Returns:
         str: The raw output from the traceroute command
     """
-    # Your code here
-    # Hint: Use the subprocess module to run the traceroute command
-    # Make sure to handle potential errors
 
-    # Remove this line once you implement the function,
-    # and don't forget to *return* the output
-    pass
+    try:
+        run = subprocess.run(['traceroute', destination], capture_output=True, text=True)
+        if run.returncode != 0:
+            logging.error(f"Traceroute failed with return code {run.returncode}")
+            return ""
+        return run.stdout
+    except Exception as e:
+        logging.error(f"Error executing traceroute: {e}")
+        return ""
 
 def parse_traceroute(traceroute_output):
-    """
-    Parses the raw traceroute output into a structured format.
+    parsed_result = []
+    lines = traceroute_output.strip().split("\n")[1:] 
 
-    Args:
-        traceroute_output (str): Raw output from the traceroute command
+    for line in lines:
+   
+        hop_match = re.match(r'\s*(\d+)\s+(.*)', line)
+        if hop_match:
+            hop = int(hop_match.group(1))
+            remainder = hop_match.group(2)
 
-    Returns:
-        list: A list of dictionaries, each containing information about a hop:
-            - 'hop': The hop number (int)
-            - 'ip': The IP address of the router (str or None if timeout)
-            - 'hostname': The hostname of the router (str or None if same as ip)
-            - 'rtt': List of round-trip times in ms (list of floats, None for timeouts)
+      
+            hostname = None
+            ip = None
+            rtt_values = []
 
-    Example:
-    ```
-        [
-            {
-                'hop': 1,
-                'ip': '172.21.160.1',
-                'hostname': 'HELDMANBACK.mshome.net',
-                'rtt': [0.334, 0.311, 0.302]
-            },
-            {
-                'hop': 2,
-                'ip': '10.103.29.254',
-                'hostname': None,
-                'rtt': [3.638, 3.630, 3.624]
-            },
-            {
-                'hop': 3,
-                'ip': None,  # For timeout/asterisk
-                'hostname': None,
-                'rtt': [None, None, None]
-            }
-        ]
-    ```
-    """
-    # Your code here
-    # Hint: Use regular expressions to extract the relevant information
-    # Handle timeouts (asterisks) appropriately
+       
+            if remainder.strip() == '* * *':
+                rtt_values = [None, None, None]
+            else:
+                
+                mixed_pattern = r'\*?\s*([^\s(]+)\s*\(([^\)]+)\)'
+                mixed_match = re.search(mixed_pattern, remainder)
+                if mixed_match:
+                    hostname = mixed_match.group(1)
+                    ip = mixed_match.group(2)
+                else:
+    
+                    ip_pattern = r'(?:.*?[^\s(]+\s*)?\(([^\)]+)\)'
+                    ip_match = re.search(ip_pattern, remainder)
+                    if ip_match:
+                        ip = ip_match.group(1)
+                    
+                        hostname_match = re.match(r'\s*([^\s(]+)\s*\(', remainder)
+                        hostname = hostname_match.group(1) if hostname_match else None
+                    else:
 
-    # Remove this line once you implement the function,
-    # and don't forget to *return* the output
-    pass
+                        no_stars = re.sub(r'\s*\*\s*', '', remainder)
+                        first_word = re.match(r'\s*([^\s]+)', no_stars)
+                        if first_word:
+                            ip = first_word.group(1)
+
+                rtt_matches = re.finditer(r'(?:([0-9.]+)\s*ms|[*](?:\s*ms)?)', remainder)
+                rtt_values = []
+                for rtt_match in rtt_matches:
+                    if rtt_match.group(1):
+                        rtt_values.append(float(rtt_match.group(1)))
+                    else:
+                        rtt_values.append(None)
+
+  
+                if '<1' in remainder:
+                    rtt_values = [0.5 if v is None else v for v in rtt_values]
+
+        
+            while len(rtt_values) < 3:
+                rtt_values.append(None)
+            rtt_values = rtt_values[:3]
+
+            
+            if hostname == '*' or hostname == ip:
+                hostname = None
+
+            parsed_result.append({
+                'hop': hop,
+                'ip': ip,
+                'hostname': hostname,
+                'rtt': rtt_values
+            })
+
+    return parsed_result
 
 # ============================================================================ #
 #                    DO NOT MODIFY THE CODE BELOW THIS LINE                    #
